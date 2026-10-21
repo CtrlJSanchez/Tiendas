@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1F3A5F">
+<title>Control de tienda</title>
+<style>
+:root{--c1:#1F3A5F;--c2:#2E8B57;--bg:#f4f5f7;--card:#fff;--tx:#1d2330;--mut:#667085;--bd:#dfe3ea;--ro:#c0392b;--am:#b7791f}
+@media(prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1c212b;--tx:#e8ebf0;--mut:#9aa4b2;--bd:#2c3340}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--tx);padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+header{background:var(--c1);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
+header b{font-size:17px}header small{opacity:.8}
+main{padding:12px;max-width:760px;margin:0 auto}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--bd);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav button{flex:1;border:0;background:none;color:var(--mut);padding:10px 2px;font-size:12px}nav button.on{color:var(--c1);font-weight:700}
+nav button span{display:block;font-size:19px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:11px;margin-bottom:9px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mut{color:var(--mut);font-size:13px}.r{text-align:right}
+input,select,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:9px;background:var(--card);color:var(--tx);font:inherit;margin:3px 0 9px}
+label{font-size:13px;color:var(--mut)}input[type=checkbox]{width:auto;margin-right:6px}
+button.b{background:var(--c1);color:#fff;border:0;border-radius:9px;padding:10px 14px;font:inherit;font-weight:600}
+button.b.g{background:var(--c2)}button.b.o{background:transparent;color:var(--c1);border:1px solid var(--c1)}button.b.d{background:var(--ro)}button.b.s{padding:6px 10px;font-size:13px}
+.chip{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600;background:#e6f4ea;color:#1e7a3c}
+.chip.ro{background:#fde8e6;color:var(--ro)}.chip.am{background:#fff3da;color:var(--am)}
+.bar{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));padding:0 12px;z-index:4}
+.bar .b{width:100%;box-shadow:0 2px 10px #0004}
+.modal{position:fixed;inset:0;background:#0007;z-index:10;display:flex;align-items:flex-end;justify-content:center}
+.modal>div{background:var(--bg);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom))}
+.toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:9px 16px;border-radius:9px;z-index:20;max-width:90%}
+.toast.er{background:var(--ro)}table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:5px 3px;border-bottom:1px solid var(--bd);text-align:left}td.n,th.n{text-align:right}
+h3{margin:14px 0 6px}.login{max-width:340px;margin:12vh auto;padding:0 16px}.qty{display:flex;align-items:center;gap:8px}.qty button{width:32px;height:32px;border-radius:50%;border:1px solid var(--bd);background:var(--card);color:var(--tx);font-size:18px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* ====== CONFIGURACIÓN: pega aquí la URL de tu Aplicación web de Apps Script (termina en /exec) ====== */
+const API_URL = "https://script.google.com/macros/s/AKfycbxYdjWl-7e0b0wgYC2JZZ22g9RYhUqinOAMqiFh-an1uuEZZYqT5WiI2xIZsjbY8mC_/exec";
+/* ================================================================================================= */
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const S = { cfg: null, token: null, user: null, tab: 'vender', prods: [], cart: {}, clientes: [], ventas: [], corte: null, alertas: null, q: '', fecha: '', usuarios: [], rep: null, aj: null, cargando: false };
+const admin = () => S.user && S.user.rol === 'ADMIN';
+const money = n => (S.cfg && S.cfg.moneda || '$') + Number(n).toFixed(2);
+const hoy = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const val = id => { const e = document.getElementById(id); return e ? (e.type === 'checkbox' ? e.checked : e.value) : ''; };
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
+
+async function api(action, datos = {}, conToken = true) {
+  if (!/^https:\/\//.test(API_URL)) throw new Error('Falta configurar API_URL en index.html');
+  let r;
+  try { r = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action, datos, token: conToken ? S.token : undefined }) }); }
+  catch (e) { throw new Error('Sin conexión. Revisa tu internet.'); }
+  let j; try { j = await r.json(); } catch (e) { throw new Error('Respuesta no válida del servidor'); }
+  if (!j.ok) { if (j.code === 'SESION' && S.token) { salir(true); } throw new Error(j.error); }
+  return j.data;
+}
+function toast(m, er) { const t = document.createElement('div'); t.className = 'toast' + (er ? ' er' : ''); t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), er ? 4500 : 2200); }
+function modal(html) { cerrar(); const m = document.createElement('div'); m.className = 'modal'; m.id = 'modal'; m.innerHTML = '<div>' + html + '</div>'; m.addEventListener('click', e => { if (e.target === m) cerrar(); }); document.body.appendChild(m); }
+function cerrar() { const m = $('#modal'); if (m) m.remove(); }
+async function intentar(fn) { try { await fn(); } catch (e) { toast(e.message, true); } }
+function tema() { const c = S.cfg; if (!c) return; document.title = c.tituloPagina || 'Control de tienda'; document.documentElement.style.setProperty('--c1', c.colorPrincipal); document.documentElement.style.setProperty('--c2', c.colorSecundario); const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = c.colorPrincipal; }
+
+/* ---------- arranque y sesión ---------- */
+async function boot() {
+  try { S.cfg = await api('config', {}, false); tema(); } catch (e) { $('#app').innerHTML = '<div class="login"><h3>No se pudo iniciar</h3><p class="mut">' + esc(e.message) + '</p></div>'; return; }
+  const t = store.get('tk'), u = store.get('us');
+  if (t && u) { S.token = t; try { S.user = JSON.parse(u); } catch (e) { S.token = null; } }
+  if (S.token) await ir('vender'); else render();
+}
+async function login() { await intentar(async () => { const d = await api('login', { usuario: val('lu'), pin: val('lp') }, false); S.token = d.token; S.user = d.usuario; store.set('tk', d.token); store.set('us', JSON.stringify(d.usuario)); await ir('vender'); }); }
+function salir(forzado) { if (S.token && !forzado) api('logout').catch(() => {}); S.token = null; S.user = null; S.cart = {}; store.del('tk'); store.del('us'); cerrar(); render(); if (forzado) toast('Tu sesión venció. Entra de nuevo.', true); }
+
+/* ---------- navegación y carga ---------- */
+async function ir(tab) {
+  S.tab = tab; S.cargando = true; render();
+  try {
+    if (['vender', 'productos'].includes(tab)) { S.prods = await api('listarProductos', {}); S.alertas = await api('alertas', {}); }
+    if (tab === 'vender' && S.cfg.moduloFiado) S.clientes = await api('listarClientes', {});
+    if (tab === 'fiado') S.clientes = await api('listarClientes', {});
+    if (tab === 'ventas') { S.fecha = S.fecha || hoy(); S.ventas = await api('listarVentas', { desde: S.fecha }); S.corte = await api('reporteDiario', { fecha: S.fecha }); }
+    if (tab === 'reportes') S.rep = await api('reporteProductos', {});
+    if (tab === 'ajustes') S.aj = await api('verAjustes', {});
+    if (tab === 'usuarios') S.usuarios = await api('listarUsuarios', {});
+  } catch (e) { toast(e.message, true); }
+  S.cargando = false; render();
+}
+function render() {
+  const app = $('#app');
+  if (!S.token) { app.innerHTML = loginView(); return; }
+  const tabs = [['vender', '🛒', 'Vender'], ['productos', '📦', 'Productos'], ['ventas', '🧾', 'Ventas']];
+  if (S.cfg.moduloFiado) tabs.push(['fiado', '📒', 'Fiado']);
+  tabs.push(['mas', '☰', 'Más']);
+  const menu = ['mas', 'reportes', 'ajustes', 'usuarios', 'pin'];
+  app.innerHTML = '<header><div><b>' + esc(S.cfg.nombreTienda) + '</b><br><small>' + esc(S.user.nombre) + ' · ' + esc(S.user.rol === 'ADMIN' ? 'Administrador' : 'Vendedor') + '</small></div></header><main>' +
+    (S.cargando ? '<p class="mut">Cargando…</p>' : (VISTAS[S.tab] || VISTAS.mas)()) + '</main>' +
+    (S.tab === 'vender' && Object.keys(S.cart).length ? barraCarrito() : '') +
+    '<nav>' + tabs.map(t => '<button data-act="ir" data-t="' + t[0] + '" class="' + (S.tab === t[0] || (t[0] === 'mas' && menu.includes(S.tab)) ? 'on' : '') + '"><span>' + t[1] + '</span>' + t[2] + '</button>').join('') + '</nav>';
+}
+function loginView() {
+  const c = S.cfg || {};
+  return '<div class="login"><h2 style="color:var(--c1)">' + esc(c.nombreTienda || '') + '</h2><p class="mut">' + esc(c.bienvenida || '') + '</p><label>Usuario</label><input id="lu" autocapitalize="none" autocomplete="username"><label>PIN</label><input id="lp" type="password" inputmode="numeric" autocomplete="current-password"><button class="b" style="width:100%" data-act="login">Entrar</button></div>';
+}
+
+/* ---------- VENDER ---------- */
+function totalCarrito() { return Object.entries(S.cart).reduce((s, [id, q]) => { const p = S.prods.find(x => x.id === id); return s + (p ? p.precioVenta * q : 0); }, 0); }
+function barraCarrito() { const n = Object.values(S.cart).reduce((a, b) => a + b, 0); return '<div class="bar"><button class="b g" data-act="carrito">Ver carrito · ' + n + ' · ' + money(totalCarrito()) + '</button></div>'; }
+function listaVender() {
+  const q = S.q.toLowerCase();
+  const l = S.prods.filter(p => p.stock > 0 && (!q || (p.nombre + ' ' + p.categoria + ' ' + p.codigo).toLowerCase().includes(q)));
+  if (!l.length) return '<p class="mut">No hay productos para mostrar.</p>';
+  return l.map(p => { const venc = p.diasParaVencer !== null && p.diasParaVencer < 0; return '<div class="card row"><div><b>' + esc(p.nombre) + '</b><br><span class="mut">' + money(p.precioVenta) + ' · hay ' + p.stock + ' ' + esc(p.unidad) + '</span>' + (venc ? ' <span class="chip ro">VENCIDO</span>' : '') + '</div>' + (venc ? '' : '<button class="b s" data-act="add" data-id="' + esc(p.id) + '">+ Agregar</button>') + '</div>'; }).join('');
+}
+function vistaVender() { return '<input id="q" placeholder="Buscar producto…" value="' + esc(S.q) + '" data-in="buscar"><div id="lista">' + listaVender() + '</div>'; }
+function carritoModal() {
+  const ids = Object.keys(S.cart);
+  if (!ids.length) { cerrar(); render(); return; }
+  const fiado = S.cfg.moduloFiado;
+  modal('<h3 style="margin-top:0">Carrito</h3>' + ids.map(id => { const p = S.prods.find(x => x.id === id); return '<div class="card row"><div>' + esc(p.nombre) + '<br><span class="mut">' + money(p.precioVenta) + ' c/u</span></div><div class="qty"><button data-act="dec" data-id="' + esc(id) + '">−</button><b>' + S.cart[id] + '</b><button data-act="inc" data-id="' + esc(id) + '">+</button></div></div>'; }).join('') +
+    '<h3>Total: ' + money(totalCarrito()) + '</h3><label>Nombre del comprador (opcional)</label><input id="comp" maxlength="60">' +
+    (fiado ? '<label>Tipo de venta</label><select id="tipo" data-in="tipo"><option value="CONTADO">Contado</option><option value="FIADO">Fiado</option></select><div id="cl" style="display:none"><label>Cliente</label><select id="cli">' + S.clientes.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + ' (debe ' + money(c.saldo) + ')</option>').join('') + '</select></div>' : '') +
+    '<button class="b g" style="width:100%" data-act="cobrar">Cobrar</button> <button class="b o" style="width:100%;margin-top:8px" data-act="vaciar">Vaciar carrito</button>');
+}
+async function cobrar() {
+  await intentar(async () => {
+    const items = Object.entries(S.cart).map(([productoId, cantidad]) => ({ productoId, cantidad }));
+    const r = await api('crearVenta', { items, comprador: val('comp'), tipo: val('tipo') || 'CONTADO', clienteId: val('cli') });
+    S.cart = {};
+    modal('<h3 style="margin-top:0">✅ Venta ' + esc(r.ventaId) + '</h3>' + r.lineas.map(l => '<div class="row"><span>' + l.cantidad + ' × ' + esc(l.producto) + '</span><span>' + money(l.subtotal) + '</span></div>').join('') + '<h3>Total ' + money(r.total) + (r.tipo === 'FIADO' ? ' (fiado)' : '') + '</h3>' + (r.alertas.length ? '<div class="card"><b>Avisos</b><br>' + r.alertas.map(esc).join('<br>') + '</div>' : '') + '<button class="b" style="width:100%" data-act="cerrarvender">Listo</button>');
+  });
+}
+
+/* ---------- PRODUCTOS ---------- */
+function avisosHtml() {
+  const a = S.alertas; if (!a) return '';
+  const f = (t, l, cls) => l.length ? '<div class="card"><span class="chip ' + cls + '">' + t + '</span> ' + l.slice(0, 6).map(x => esc(x.nombre) + (x.dias !== undefined ? ' (' + x.dias + ' d)' : ' (' + x.stock + ')')).join(', ') + (l.length > 6 ? ' …' : '') + '</div>' : '';
+  return f('Vencidos', a.vencidos, 'ro') + f('Por vencer', a.porVencer, 'am') + f('Agotados', a.agotados, 'ro') + f('Stock bajo', a.stockBajo, 'am');
+}
+function listaProductos() {
+  const q = S.q.toLowerCase();
+  const l = S.prods.filter(p => !q || (p.nombre + ' ' + p.categoria).toLowerCase().includes(q));
+  return l.map(p => '<div class="card row" data-act="prod" data-id="' + esc(p.id) + '"><div><b>' + esc(p.nombre) + '</b><br><span class="mut">' + esc(p.categoria) + ' · ' + money(p.precioVenta) + '</span>' + (p.vence ? '<br><span class="mut">Vence ' + esc(p.vence) + '</span>' : '') + '</div><div class="r"><b>' + p.stock + '</b> ' + esc(p.unidad) + '<br><span class="chip ' + (p.estado === 'OK' ? '' : p.estado === 'AGOTADO' ? 'ro' : 'am') + '">' + p.estado + '</span></div></div>').join('') || '<p class="mut">Sin productos.</p>';
+}
+function vistaProductos() { return avisosHtml() + (admin() ? '<button class="b" style="width:100%;margin-bottom:9px" data-act="nuevoprod">+ Nuevo producto</button>' : '') + '<input id="q" placeholder="Buscar…" value="' + esc(S.q) + '" data-in="buscar2"><div id="lista">' + listaProductos() + '</div>'; }
+function formProducto(p) {
+  p = p || {}; const cats = [...new Set(S.prods.map(x => x.categoria))];
+  return '<h3 style="margin-top:0">' + (p.id ? 'Editar producto' : 'Nuevo producto') + '</h3><label>Nombre</label><input id="f_n" value="' + esc(p.nombre) + '"><label>Categoría</label><input id="f_c" list="cats" value="' + esc(p.categoria) + '"><datalist id="cats">' + cats.map(c => '<option value="' + esc(c) + '">').join('') + '</datalist><label>Subcategoría</label><input id="f_s" value="' + esc(p.subcategoria) + '"><label>Unidad</label><input id="f_u" value="' + esc(p.unidad || 'unidad') + '"><div class="row"><div style="flex:1"><label>Costo</label><input id="f_pc" type="number" step="0.01" inputmode="decimal" value="' + esc(p.precioCompra) + '"></div><div style="flex:1"><label>Precio venta</label><input id="f_pv" type="number" step="0.01" inputmode="decimal" value="' + esc(p.precioVenta) + '"></div></div>' + (S.cfg.moduloStockMinimo ? '<label>Stock mínimo</label><input id="f_m" type="number" step="0.01" value="' + esc(p.stockMinimo || 0) + '">' : '') + '<label>Vencimiento (opcional)</label><input id="f_v" type="date" value="' + esc(p.vence) + '"><label><input id="f_a" type="checkbox"' + (p.activo === false ? '' : ' checked') + '>Activo</label><button class="b" style="width:100%" data-act="guardarprod" data-id="' + esc(p.id || '') + '">Guardar</button>' + (p.id ? '<div class="row" style="margin-top:8px;gap:8px"><button class="b g" style="flex:1" data-act="entrada" data-id="' + esc(p.id) + '">+ Entrada</button><button class="b o" style="flex:1" data-act="ajuste" data-id="' + esc(p.id) + '">Ajustar stock</button></div>' : '');
+}
+async function guardarProd(id) { await intentar(async () => { const m = S.cfg.moduloStockMinimo ? val('f_m') : undefined; const r = await api('guardarProducto', { id: id || undefined, nombre: val('f_n'), categoria: val('f_c'), subcategoria: val('f_s'), unidad: val('f_u'), precioCompra: val('f_pc'), precioVenta: val('f_pv'), stockMinimo: m, vence: val('f_v'), activo: val('f_a') }); cerrar(); toast(r.advertencia || 'Producto guardado'); await ir('productos'); }); }
+
+/* ---------- VENTAS ---------- */
+function vistaVentas() {
+  const c = S.corte, filas = S.ventas.map(v => '<div class="card"><div class="row"><div><b>' + esc(v.ventaId) + '</b> · ' + esc(v.fecha.slice(11, 16)) + ' · ' + esc(v.tipo) + (v.estado === 'ANULADA' ? ' <span class="chip ro">ANULADA</span>' : '') + '<br><span class="mut">' + esc(v.comprador || 'Sin nombre') + '</span></div><b>' + money(v.total) + '</b></div><div class="mut">' + v.lineas.map(l => l.cantidad + '×' + esc(l.producto)).join(', ') + '</div>' + (v.motivoAnula ? '<div class="mut">Motivo: ' + esc(v.motivoAnula) + '</div>' : '') + (admin() && v.estado === 'ACTIVA' ? '<button class="b d s" style="margin-top:6px" data-act="anular" data-id="' + esc(v.ventaId) + '">Anular</button>' : '') + '</div>').join('');
+  return '<input id="fe" type="date" value="' + esc(S.fecha) + '" data-in="fecha"><div class="card"><h3 style="margin:0 0 6px">Corte del día</h3><table><tr><td>Ventas</td><td class="n">' + c.ventas + '</td></tr><tr><td>Contado</td><td class="n">' + money(c.contado) + '</td></tr><tr><td>Fiado</td><td class="n">' + money(c.fiado) + '</td></tr><tr><td>Abonos</td><td class="n">' + money(c.abonos) + '</td></tr><tr><td><b>Efectivo esperado</b></td><td class="n"><b>' + money(c.efectivoEsperado) + '</b></td></tr>' + (c.ganancia !== undefined ? '<tr><td>Ganancia</td><td class="n">' + money(c.ganancia) + '</td></tr>' : '') + (c.anuladas ? '<tr><td>Anuladas</td><td class="n">' + c.anuladas + ' (' + money(c.montoAnulado) + ')</td></tr>' : '') + '</table></div>' + (filas || '<p class="mut">Sin ventas en esta fecha.</p>');
+}
+
+/* ---------- FIADO ---------- */
+function vistaFiado() { return (admin() ? '<button class="b" style="width:100%;margin-bottom:9px" data-act="nuevocli">+ Nuevo cliente</button>' : '') + (S.clientes.map(c => '<div class="card row"><div><b>' + esc(c.nombre) + '</b><br><span class="mut">' + esc(c.telefono) + (c.limite ? ' · límite ' + money(c.limite) : '') + '</span></div><div class="r"><b>' + money(c.saldo) + '</b><br><button class="b s g" data-act="abono" data-id="' + esc(c.id) + '">Abonar</button>' + (admin() ? ' <button class="b s o" data-act="editcli" data-id="' + esc(c.id) + '">Editar</button>' : '') + '</div></div>').join('') || '<p class="mut">Sin clientes registrados.</p>'); }
+
+/* ---------- MÁS: reportes, ajustes, usuarios, PIN ---------- */
+function vistaMas() { return '<div class="card">' + (admin() ? '<button class="b o" style="width:100%;margin-bottom:8px" data-act="ir" data-t="reportes">📊 Reportes</button><button class="b o" style="width:100%;margin-bottom:8px" data-act="ir" data-t="ajustes">⚙️ Ajustes de la tienda</button><button class="b o" style="width:100%;margin-bottom:8px" data-act="ir" data-t="usuarios">👥 Usuarios</button>' : '') + '<button class="b o" style="width:100%;margin-bottom:8px" data-act="ir" data-t="pin">🔑 Cambiar mi PIN</button><button class="b d" style="width:100%" data-act="salir">Cerrar sesión</button></div>'; }
+const tabla = (cab, filas) => '<table><tr>' + cab.map((c, i) => '<th class="' + (i ? 'n' : '') + '">' + c + '</th>').join('') + '</tr>' + filas.map(f => '<tr>' + f.map((c, i) => '<td class="' + (i ? 'n' : '') + '">' + c + '</td>').join('') + '</tr>').join('') + '</table>';
+function vistaReportes() {
+  const r = S.rep; if (!r) return '';
+  return '<div class="card"><b>Inventario</b><br>Al costo ' + money(r.inventario.valorCosto) + ' · a precio de venta ' + money(r.inventario.valorVenta) + '<br>Ganancia potencial ' + money(r.inventario.gananciaPotencial) + '</div><h3>Más vendidos (' + esc(r.desde) + ' a ' + esc(r.hasta) + ')</h3><div class="card">' + (r.masVendidos.length ? tabla(['Producto', 'Unid.', 'Ganancia'], r.masVendidos.map(x => [esc(x.nombre), x.unidades, money(x.ganancia)])) : '<span class="mut">Sin ventas en el período.</span>') + '</div><h3>Menos vendidos</h3><div class="card">' + tabla(['Producto', 'Unid.'], r.menosVendidos.map(x => [esc(x.nombre), x.unidades])) + '</div><h3>Sin rotación (sugerencia de rebaja)</h3><div class="card">' + (r.sinRotacion.length ? tabla(['Producto', 'Días', 'Precio → sugerido'], r.sinRotacion.map(x => [esc(x.nombre), x.diasSinVender, money(x.precioActual) + ' → ' + money(x.precioSugerido) + (x.enCosto ? ' (costo)' : '')])) : '<span class="mut">Todo está rotando bien.</span>') + '</div>';
+}
+function vistaAjustes() {
+  const a = S.aj; if (!a) return ''; const e = a.editables;
+  const campo = (k, t, tipo) => '<label>' + t + '</label><input id="aj_' + k + '" ' + (tipo ? 'type="' + tipo + '" ' : '') + 'value="' + esc(e[k]) + '">';
+  return '<div class="card"><p class="mut" style="margin:0 0 8px">Plan: <b>' + esc(a.plan) + '</b></p>' + campo('NOMBRE_TIENDA', 'Nombre de la tienda') + campo('TITULO_PAGINA', 'Título de la pestaña') + campo('TEXTO_BIENVENIDA', 'Texto de bienvenida') + campo('MONEDA', 'Moneda') + campo('COLOR_PRINCIPAL', 'Color principal', 'color') + campo('COLOR_SECUNDARIO', 'Color secundario', 'color') + campo('MENSAJE_STOCK_MINIMO', 'Mensaje de stock mínimo ({producto} y {stock})') + campo('DIAS_AVISO_VENCIMIENTO', 'Avisar vencimientos con (días)', 'number') + campo('DIAS_SIN_ROTACION', 'Días sin ventas para sugerir rebaja', 'number') + campo('PORC_REBAJA_SUGERIDA', 'Rebaja sugerida (%)', 'number') + campo('SESION_HORAS', 'Duración de la sesión (horas)', 'number') + '<button class="b" style="width:100%" data-act="guardaraj">Guardar ajustes</button></div>';
+}
+function vistaUsuarios() { return '<button class="b" style="width:100%;margin-bottom:9px" data-act="nuevouser">+ Nuevo usuario</button>' + S.usuarios.map(u => '<div class="card row"><div><b>' + esc(u.nombre) + '</b> <span class="chip ' + (u.activo ? '' : 'ro') + '">' + (u.activo ? esc(u.rol) : 'INACTIVO') + '</span><br><span class="mut">' + esc(u.usuario) + '</span></div><button class="b s o" data-act="edituser" data-id="' + esc(u.id) + '">Editar</button></div>').join(''); }
+function vistaPin() { return '<div class="card"><label>PIN actual</label><input id="p0" type="password" inputmode="numeric"><label>PIN nuevo (4 a 8 números)</label><input id="p1" type="password" inputmode="numeric"><button class="b" style="width:100%" data-act="cambiarpin">Cambiar PIN</button></div>'; }
+const VISTAS = { vender: vistaVender, productos: vistaProductos, ventas: vistaVentas, fiado: vistaFiado, mas: vistaMas, reportes: vistaReportes, ajustes: vistaAjustes, usuarios: vistaUsuarios, pin: vistaPin };
+
+/* ---------- acciones (clics) ---------- */
+const ACT = {
+  login, salir: () => salir(false), ir: d => ir(d.t),
+  add: d => { S.cart[d.id] = (S.cart[d.id] || 0) + 1; render(); toast('Agregado'); },
+  carrito: carritoModal,
+  inc: d => { const p = S.prods.find(x => x.id === d.id); if ((S.cart[d.id] || 0) + 1 > p.stock) return toast('Solo hay ' + p.stock, true); S.cart[d.id]++; carritoModal(); },
+  dec: d => { S.cart[d.id]--; if (S.cart[d.id] <= 0) delete S.cart[d.id]; carritoModal(); },
+  vaciar: () => { S.cart = {}; cerrar(); render(); }, cobrar, cerrarvender: () => { cerrar(); ir('vender'); },
+  prod: d => { const p = S.prods.find(x => x.id === d.id); if (admin()) modal(formProducto(p)); else modal('<h3 style="margin-top:0">' + esc(p.nombre) + '</h3><p>' + money(p.precioVenta) + ' · hay ' + p.stock + ' ' + esc(p.unidad) + (p.vence ? '<br>Vence ' + esc(p.vence) : '') + '</p>'); },
+  nuevoprod: () => modal(formProducto()), guardarprod: d => guardarProd(d.id),
+  entrada: d => modal('<h3 style="margin-top:0">Entrada de mercadería</h3><label>Cantidad</label><input id="e_q" type="number" step="0.01" inputmode="decimal"><label>Costo unitario</label><input id="e_c" type="number" step="0.01" inputmode="decimal"><label><input id="e_a" type="checkbox">Actualizar el costo del producto</label><label>Proveedor (opcional)</label><input id="e_p"><label>Nuevo vencimiento (opcional)</label><input id="e_v" type="date"><button class="b g" style="width:100%" data-act="guardarentrada" data-id="' + esc(d.id) + '">Registrar entrada</button>'),
+  guardarentrada: d => intentar(async () => { await api('registrarEntrada', { productoId: d.id, cantidad: val('e_q'), costo: val('e_c'), actualizarCosto: val('e_a'), proveedor: val('e_p'), vence: val('e_v') }); cerrar(); toast('Entrada registrada'); await ir('productos'); }),
+  ajuste: d => modal('<h3 style="margin-top:0">Ajustar stock por conteo</h3><label>Cantidad real que hay</label><input id="j_q" type="number" step="0.01" inputmode="decimal"><label>Motivo</label><input id="j_m" placeholder="Conteo, merma, rotura…"><button class="b" style="width:100%" data-act="guardarajuste" data-id="' + esc(d.id) + '">Aplicar ajuste</button>'),
+  guardarajuste: d => intentar(async () => { const r = await api('ajustarInventario', { productoId: d.id, conteoReal: val('j_q'), motivo: val('j_m') }); cerrar(); toast('Stock ahora: ' + r.stock); await ir('productos'); }),
+  anular: d => modal('<h3 style="margin-top:0">Anular venta ' + esc(d.id) + '</h3><p class="mut">Se devuelve el stock y queda registrada.</p><label>Motivo</label><input id="an_m"><button class="b d" style="width:100%" data-act="confanular" data-id="' + esc(d.id) + '">Anular venta</button>'),
+  confanular: d => intentar(async () => { await api('anularVenta', { ventaId: d.id, motivo: val('an_m') }); cerrar(); toast('Venta anulada'); await ir('ventas'); }),
+  abono: d => { const c = S.clientes.find(x => x.id === d.id); modal('<h3 style="margin-top:0">Abono de ' + esc(c.nombre) + '</h3><p>Saldo: <b>' + money(c.saldo) + '</b></p><label>Monto</label><input id="ab_m" type="number" step="0.01" inputmode="decimal"><label>Nota (opcional)</label><input id="ab_n"><button class="b g" style="width:100%" data-act="guardarabono" data-id="' + esc(d.id) + '">Registrar abono</button>'); },
+  guardarabono: d => intentar(async () => { const r = await api('registrarAbono', { clienteId: d.id, monto: val('ab_m'), nota: val('ab_n') }); cerrar(); toast('Saldo: ' + money(r.saldo)); await ir('fiado'); }),
+  nuevocli: () => modal(formCliente()), editcli: d => modal(formCliente(S.clientes.find(x => x.id === d.id))),
+  guardarcli: d => intentar(async () => { await api('guardarCliente', { id: d.id || undefined, nombre: val('c_n'), telefono: val('c_t'), limite: val('c_l') }); cerrar(); toast('Cliente guardado'); await ir('fiado'); }),
+  guardaraj: () => intentar(async () => { const cambios = {}; Object.keys(S.aj.editables).forEach(k => { cambios[k] = val('aj_' + k); }); await api('guardarAjustes', { cambios }); S.cfg = await api('config', {}, false); tema(); toast('Ajustes guardados'); await ir('ajustes'); }),
+  nuevouser: () => modal(formUser()), edituser: d => modal(formUser(S.usuarios.find(x => x.id === d.id))),
+  guardaruser: d => intentar(async () => { await api('guardarUsuario', { id: d.id || undefined, nombre: val('u_n'), usuario: val('u_u'), rol: val('u_r'), pin: val('u_p') || undefined, activo: val('u_a') }); cerrar(); toast('Usuario guardado'); await ir('usuarios'); }),
+  cambiarpin: () => intentar(async () => { await api('cambiarPin', { pinActual: val('p0'), pinNuevo: val('p1') }); toast('PIN cambiado'); await ir('mas'); })
+};
+function formCliente(c) { c = c || {}; return '<h3 style="margin-top:0">' + (c.id ? 'Editar cliente' : 'Nuevo cliente') + '</h3><label>Nombre</label><input id="c_n" value="' + esc(c.nombre) + '"><label>Teléfono</label><input id="c_t" value="' + esc(c.telefono) + '"><label>Límite de fiado (0 = sin límite)</label><input id="c_l" type="number" step="0.01" value="' + esc(c.limite || 0) + '"><button class="b" style="width:100%" data-act="guardarcli" data-id="' + esc(c.id || '') + '">Guardar</button>'; }
+function formUser(u) { u = u || {}; return '<h3 style="margin-top:0">' + (u.id ? 'Editar usuario' : 'Nuevo usuario') + '</h3><label>Nombre</label><input id="u_n" value="' + esc(u.nombre) + '"><label>Usuario (minúsculas)</label><input id="u_u" autocapitalize="none" value="' + esc(u.usuario) + '"><label>Rol</label><select id="u_r"><option value="VENDEDOR"' + (u.rol === 'VENDEDOR' ? ' selected' : '') + '>Vendedor</option><option value="ADMIN"' + (u.rol === 'ADMIN' ? ' selected' : '') + '>Administrador</option></select><label>' + (u.id ? 'PIN nuevo (vacío = no cambiar)' : 'PIN (4 a 8 números)') + '</label><input id="u_p" type="password" inputmode="numeric"><label><input id="u_a" type="checkbox"' + (u.activo === false ? '' : ' checked') + '>Activo</label><button class="b" style="width:100%" data-act="guardaruser" data-id="' + esc(u.id || '') + '">Guardar</button>'; }
+
+document.addEventListener('click', e => { const el = e.target.closest('[data-act]'); if (el && ACT[el.dataset.act]) ACT[el.dataset.act](el.dataset); });
+document.addEventListener('input', e => {
+  const k = e.target.dataset && e.target.dataset.in; if (!k) return;
+  if (k === 'buscar') { S.q = e.target.value; $('#lista').innerHTML = listaVender(); }
+  if (k === 'buscar2') { S.q = e.target.value; $('#lista').innerHTML = listaProductos(); }
+  if (k === 'tipo') { $('#cl').style.display = e.target.value === 'FIADO' ? 'block' : 'none'; }
+  if (k === 'fecha' && e.target.value) { S.fecha = e.target.value; ir('ventas'); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'lp') login(); });
+boot();
+</script>
+</body>
+</html>
